@@ -1,13 +1,10 @@
-$(function() {
+$(() => {
   consoleInit()
   start(main)
 })
 
 async function printPool(App, tokens, prices, pool) {
-  const tokenUrl = `<a href='https://etherscan.io/address/${pool.tokenAddress}' target='_blank'>Underlying</a>`
-  const settUrl = `<a href='https://etherscan.io/address/${pool.settAddress}' target='_blank'>Sett</a>`
-  const geyserUrl = `<a href='https://etherscan.io/address/${pool.geyserAddress}' target='_blank'>Geyser</a>`
-  _print(`${pool.name} - ${tokenUrl} - ${settUrl} - ${geyserUrl}`)
+  _print(`${pool.name}`)
   const tokenAddress = pool.tokenAddress
   const settAddress = pool.settAddress
   const geyserAddress = pool.geyserAddress

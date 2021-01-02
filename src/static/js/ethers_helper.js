@@ -1,8 +1,6 @@
 async function init_ethers() {
   const App = {}
 
-  const ETHEREUM_NODE_URL = 'https://mainnet.infura.io/v3/fe7f3fcaee374445bb954ac4c03e0512'
-
   let isMetaMaskInstalled = false
 
   // Modern dapp browsers...
@@ -18,24 +16,6 @@ async function init_ethers() {
 
   //resolve ENS domain if possible
   App.YOUR_ADDRESS = addr
-
-  // Could not load URL parameter
-  if (!App.YOUR_ADDRESS) {
-    if (!isMetaMaskInstalled) {
-      if (localStorage.hasOwnProperty('addr')) {
-        App.YOUR_ADDRESS = localStorage.getItem('addr')
-      } else {
-        App.YOUR_ADDRESS = window.prompt('Enter your eth address.')
-      }
-    } else {
-      let accounts = await App.provider.listAccounts()
-      App.YOUR_ADDRESS = accounts[0]
-    }
-  }
-
-  if (!App.YOUR_ADDRESS || !ethers.utils.isAddress(App.YOUR_ADDRESS)) {
-    throw 'Could not initialize your address. Make sure your address is checksum valid.'
-  }
 
   localStorage.setItem('addr', App.YOUR_ADDRESS)
   return App
@@ -82,7 +62,7 @@ const consoleInit = function() {
   _print('')
 }
 
-const _print = function(message) {
+const _print = function() {
   if (!logger) {
     logger = document.getElementById('log')
   }
@@ -97,7 +77,7 @@ const _print = function(message) {
   }
 }
 
-const _print_bold = function(message) {
+const _print_bold = function() {
   if (!logger) {
     logger = document.getElementById('log')
   }
@@ -258,11 +238,11 @@ const _print24HourPrice = async function(id, ticker) {
 
 const getBlockTime = function() {
   _print('Fetching current block time...')
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     $.ajax({
       url: 'https://etherchain.org/api/basic_stats',
       type: 'GET',
-      success: function(data, text) {
+      success: function(data) {
         if (data['currentStats'] && data['currentStats']['block_time']) {
           resolve(data['currentStats']['block_time'])
           return
@@ -272,7 +252,7 @@ const getBlockTime = function() {
         _print('Using backup data...')
         resolve(BLOCK_TIME)
       },
-      error: function(request, status, error) {
+      error: function(request) {
         _print('Could not get etherchain basic stats.')
         _print(request.responseText)
         _print('Using backup data...')
@@ -282,7 +262,7 @@ const getBlockTime = function() {
   })
 }
 
-const printBALRewards = async function(synthStakingPoolAddr, BALPrice, percentageOfBalancerPool) {}
+const printBALRewards = async function() {}
 
 const getLatestTotalBALAmount = async function(addr) {
   const bal_earnings = await getBALEarnings(addr, BAL_DISTRIBUTION_WEEK - 1)
@@ -424,251 +404,9 @@ const trimOrFillTo = function(str, n) {
   return str
 }
 
-const dao_deposit = async (App, DAO, DOLLAR) => {
-  const signer = App.provider.getSigner()
-  const balance = await DOLLAR.balanceOf(App.YOUR_ADDRESS)
-  const allowed = await DOLLAR.allowance(App.YOUR_ADDRESS, DAO.address)
-  if (allowed < balance) {
-    showLoading()
-    const tx = await DOLLAR.connect(signer).approve(DAO.address, ethers.constants.MaxUint256)
-    await tx.wait()
-  }
-  if (balance > 0) {
-    try {
-      await DAO.connect(signer).deposit(balance, {gasLimit: 500000})
-      hideLoading()
-    } catch (ex) {
-      hideLoading()
-      console.log(ex)
-      _print('Something went wrong.')
-    }
-  } else {
-    alaert(`You have no tokens to deposit!`)
-  }
-}
-
-const rewardsContract_stake = async function(stakingTokenAddr, rewardPoolAddr, App, maxAllowance) {
-  const signer = App.provider.getSigner()
-
-  const TEND_TOKEN = new ethers.Contract(stakingTokenAddr, ERC20_ABI, signer)
-  const WEEBTEND_V2_TOKEN = new ethers.Contract(rewardPoolAddr, YFFI_REWARD_CONTRACT_ABI, signer)
-
-  const balanceOf = await TEND_TOKEN.balanceOf(App.YOUR_ADDRESS)
-  const currentTEND = maxAllowance ? (maxAllowance / 1e18 < balanceOf / 1e18 ? maxAllowance : balanceOf) : balanceOf
-  const allowedTEND = await TEND_TOKEN.allowance(App.YOUR_ADDRESS, rewardPoolAddr)
-
-  let allow = Promise.resolve()
-
-  if (allowedTEND / 1e18 < currentTEND / 1e18) {
-    showLoading()
-    allow = TEND_TOKEN.approve(rewardPoolAddr, ethers.constants.MaxUint256)
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-        alert('Try resetting your approval to 0 first')
-      })
-  }
-
-  if (currentTEND / 1e18 > 0) {
-    showLoading()
-    allow
-      .then(async function() {
-        WEEBTEND_V2_TOKEN.stake(currentTEND, {gasLimit: 500000})
-          .then(function(t) {
-            App.provider.waitForTransaction(t.hash).then(function() {
-              hideLoading()
-            })
-          })
-          .catch(x => {
-            hideLoading()
-            console.log(x)
-            _print('Something went wrong.')
-          })
-      })
-      .catch(x => {
-        hideLoading()
-        console.log(x)
-        _print('Something went wrong.')
-      })
-  } else {
-    alert('You have no tokens to stake!!')
-  }
-}
-
-const rewardsContract_unstake = async function(rewardPoolAddr, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = new ethers.Contract(rewardPoolAddr, Y_STAKING_POOL_ABI, signer)
-  const currentStakedAmount = await REWARD_POOL.balanceOf(App.YOUR_ADDRESS)
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.withdraw(currentStakedAmount, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const rewardsContract_exit = async function(rewardPoolAddr, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = new ethers.Contract(rewardPoolAddr, Y_STAKING_POOL_ABI, signer)
-  const currentStakedAmount = (await REWARD_POOL.balanceOf(App.YOUR_ADDRESS)) / 1e18
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.exit({gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const rewardsContract_claim = async function(rewardPoolAddr, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = new ethers.Contract(rewardPoolAddr, Y_STAKING_POOL_ABI, signer)
-
-  console.log(App.YOUR_ADDRESS)
-
-  const earnedYFFI = (await REWARD_POOL.earned(App.YOUR_ADDRESS)) / 1e18
-
-  if (earnedYFFI > 0) {
-    showLoading()
-    REWARD_POOL.getReward({gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const boardroom_claim = async function(rewardPoolAddr, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = new ethers.Contract(rewardPoolAddr, BOARDROOM_ABI, signer)
-
-  console.log(App.YOUR_ADDRESS)
-
-  const earnedYFFI = (await REWARD_POOL.earned(App.YOUR_ADDRESS)) / 1e18
-
-  if (earnedYFFI > 0) {
-    showLoading()
-    REWARD_POOL.claimReward({gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
 const print_warning = function() {
   _print_bold('WARNING: DO NOT USE STAKE IN THIS POOL UNLESS YOU HAVE REVIEWED THE CONTRACTS.')
   _print_bold('         YOU ARE RESPONSIBLE FOR ANY FUNDS THAT YOU LOSE BY INTERACTING WITH THIS CONTRACT.\n')
-}
-
-const chefContract_stake = async function(chefAbi, chefAddress, poolIndex, stakingTokenAddr, App) {
-  const signer = App.provider.getSigner()
-
-  const STAKING_TOKEN = new ethers.Contract(stakingTokenAddr, ERC20_ABI, signer)
-  const CHEF_CONTRACT = new ethers.Contract(chefAddress, chefAbi, signer)
-
-  const currentTokens = await STAKING_TOKEN.balanceOf(App.YOUR_ADDRESS)
-  const allowedTokens = await STAKING_TOKEN.allowance(App.YOUR_ADDRESS, chefAddress)
-
-  let allow = Promise.resolve()
-
-  if (allowedTokens / 1e18 < currentTokens / 1e18) {
-    showLoading()
-    allow = STAKING_TOKEN.approve(chefAddress, ethers.constants.MaxUint256)
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-        alert('Try resetting your approval to 0 first')
-      })
-  }
-
-  if (currentTokens / 1e18 > 0) {
-    showLoading()
-    allow
-      .then(async function() {
-        CHEF_CONTRACT.deposit(poolIndex, currentTokens, {gasLimit: 500000})
-          .then(function(t) {
-            App.provider.waitForTransaction(t.hash).then(function() {
-              hideLoading()
-            })
-          })
-          .catch(function() {
-            hideLoading()
-            _print('Something went wrong.')
-          })
-      })
-      .catch(function() {
-        hideLoading()
-        _print('Something went wrong.')
-      })
-  } else {
-    alert('You have no tokens to stake!!')
-  }
-}
-
-const chefContract_unstake = async function(chefAbi, chefAddress, poolIndex, App, pendingRewardsFunction) {
-  const signer = App.provider.getSigner()
-  const CHEF_CONTRACT = new ethers.Contract(chefAddress, chefAbi, signer)
-
-  const currentStakedAmount = (await CHEF_CONTRACT.userInfo(poolIndex, App.YOUR_ADDRESS)).amount
-  const earnedTokenAmount = (await CHEF_CONTRACT.callStatic[pendingRewardsFunction](poolIndex, App.YOUR_ADDRESS)) / 1e18
-
-  if (earnedTokenAmount > 0) {
-    showLoading()
-    CHEF_CONTRACT.withdraw(poolIndex, currentStakedAmount, {gasLimit: 500000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const chefContract_claim = async function(chefAbi, chefAddress, poolIndex, App, pendingRewardsFunction, claimFunction) {
-  const signer = App.provider.getSigner()
-
-  const CHEF_CONTRACT = new ethers.Contract(chefAddress, chefAbi, signer)
-
-  const earnedTokenAmount = (await CHEF_CONTRACT.callStatic[pendingRewardsFunction](poolIndex, App.YOUR_ADDRESS)) / 1e18
-
-  if (earnedTokenAmount > 0) {
-    showLoading()
-    if (claimFunction) {
-      claimFunction(poolIndex, {gasLimit: 500000}).then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-    } else {
-      CHEF_CONTRACT.deposit(poolIndex, 0, {gasLimit: 500000})
-        .then(function(t) {
-          return App.provider.waitForTransaction(t.hash)
-        })
-        .catch(function() {
-          hideLoading()
-        })
-    }
-  }
 }
 
 async function getUniPool(app, pool, poolAddress, stakingAddress) {
@@ -701,7 +439,7 @@ async function getUniPool(app, pool, poolAddress, stakingAddress) {
     stakingAddress: stakingAddress,
     staked: (await pool.balanceOf(stakingAddress)) / 10 ** decimals,
     decimals: decimals,
-    unstaked: (await pool.balanceOf(app.YOUR_ADDRESS)) / 10 ** decimals,
+
     contract: pool,
     tokens: [token0, token1],
     is1inch,
@@ -728,7 +466,7 @@ async function getBalancerPool(app, pool, poolAddress, stakingAddress, tokens) {
     stakingAddress: stakingAddress,
     staked: (await pool.balanceOf(stakingAddress)) / 10 ** decimals,
     decimals: decimals,
-    unstaked: (await pool.balanceOf(app.YOUR_ADDRESS)) / 10 ** decimals,
+
     contract: pool,
     tokens: tokens, //just the token addresses to conform with the other pool types
   }
@@ -744,7 +482,7 @@ async function getJar(app, jar, address, stakingAddress) {
     totalSupply: await jar.totalSupply(),
     decimals: decimals,
     staked: (await jar.balanceOf(stakingAddress)) / 10 ** decimals,
-    unstaked: (await jar.balanceOf(app.YOUR_ADDRESS)) / 10 ** decimals,
+
     token: token,
     balance: await jar.balance(),
     contract: jar,
@@ -754,8 +492,7 @@ async function getJar(app, jar, address, stakingAddress) {
 
 async function getErc20(app, token, address, stakingAddress) {
   const decimals = await token.decimals()
-  const staked = await token.balanceOf(stakingAddress)
-  const unstaked = await token.balanceOf(app.YOUR_ADDRESS)
+
   const ret = {
     address: address,
     name: await token.name(),
@@ -773,7 +510,7 @@ async function getErc20(app, token, address, stakingAddress) {
 async function getDSToken(app, token, address, stakingAddress) {
   const decimals = await token.decimals()
   const staked = await token.balanceOf(stakingAddress)
-  const unstaked = await token.balanceOf(app.YOUR_ADDRESS)
+
   const ret = {
     address: address,
     name: hex_to_ascii(await token.name()),
@@ -781,7 +518,7 @@ async function getDSToken(app, token, address, stakingAddress) {
     totalSupply: await token.totalSupply(),
     decimals: decimals,
     staked: staked / 10 ** decimals,
-    unstaked: unstaked / 10 ** decimals,
+
     contract: token,
     tokens: [address],
   }
@@ -800,7 +537,6 @@ function hex_to_ascii(str1) {
 async function getToken(app, tokenAddress, stakingAddress) {
   try {
     const pool = new ethers.Contract(tokenAddress, UNI_ABI, app.provider)
-    const _token0 = await pool.token0()
     const uniPool = await getUniPool(app, pool, tokenAddress, stakingAddress)
     return uniPool
   } catch (err) {}
@@ -812,12 +548,10 @@ async function getToken(app, tokenAddress, stakingAddress) {
   } catch (err) {}
   try {
     const jar = new ethers.Contract(tokenAddress, JAR_ABI, app.provider)
-    const _token = await jar.token()
     return await getJar(app, jar, tokenAddress, stakingAddress)
   } catch (err) {}
   try {
     const erc20 = new ethers.Contract(tokenAddress, ERC20_ABI, app.provider)
-    const _name = await erc20.name()
     const erc20tok = await getErc20(app, erc20, tokenAddress, stakingAddress)
     return erc20tok
   } catch (err) {}
@@ -1049,33 +783,6 @@ function getPoolPrices(tokens, prices, pool) {
   if (pool.token0 != null) return getUniPrices(tokens, prices, pool)
   if (pool.token != null) return getWrapPrices(tokens, prices, pool)
   return getErc20Prices(prices, pool)
-}
-
-async function getPoolInfo(app, chefContract, chefAddress, poolIndex, pendingRewardsFunction) {
-  const poolInfo = await chefContract.poolInfo(poolIndex)
-  const poolToken = await getToken(app, poolInfo.lpToken, chefAddress)
-  const userInfo = await chefContract.userInfo(poolIndex, app.YOUR_ADDRESS)
-  const pendingRewardTokens = await chefContract.callStatic[pendingRewardsFunction](poolIndex, app.YOUR_ADDRESS)
-  const staked = userInfo.amount / 10 ** poolToken.decimals
-  var stakedToken
-  var userLPStaked
-  if (
-    poolInfo.stakedHoldableToken != null &&
-    poolInfo.stakedHoldableToken != '0x0000000000000000000000000000000000000000'
-  ) {
-    stakedToken = await getToken(app, poolInfo.stakedHoldableToken, chefAddress)
-    userLPStaked = userInfo.stakedLPAmount / 10 ** poolToken.decimals
-  }
-  return {
-    address: poolInfo.lpToken,
-    allocPoints: poolInfo.allocPoint ?? 1,
-    poolToken: poolToken,
-    userStaked: staked,
-    pendingRewardTokens: pendingRewardTokens / 10 ** 18,
-    stakedToken: stakedToken,
-    userLPStaked: userLPStaked,
-    lastRewardBlock: poolInfo.lastRewardBlock,
-  }
 }
 
 function printApy(
@@ -1410,32 +1117,7 @@ async function loadChefContractSecondAttempt(
   }
 }
 
-async function loadFluidStatus(App, LP, fluidEpochs, epoch) {
-  const unbondFilter = LP.filters.Unbond(App.YOUR_ADDRESS)
-  const unbonds = await LP.queryFilter(unbondFilter)
-  const bondFilter = LP.filters.Bond(App.YOUR_ADDRESS)
-  const bonds = await LP.queryFilter(bondFilter)
-  if (unbonds.length + bonds.length > 0) {
-    const lastUnbond = Math.max(...unbonds.map(u => u.args.start / 1))
-    const lastBond = Math.max(...bonds.map(d => d.args.start / 1))
-    const fluidEpoch = Math.max(lastUnbond, lastBond)
-    _print(`You last bonded or unbonded at epoch ${fluidEpoch}.`)
-    _print(`You will become Frozen in ${fluidEpoch + fluidEpochs - epoch} epochs.`)
-  }
-}
-
-const loadDAO = async (
-  App,
-  DAO,
-  DOLLAR,
-  uniswapAddress,
-  liquidityPoolAddress,
-  tokens,
-  prices,
-  fluidEpochs,
-  isBuggyDAO
-) => {
-  const unstaked = (await DOLLAR.balanceOf(App.YOUR_ADDRESS)) / 1e18
+const loadDAO = async (App, DAO, DOLLAR, uniswapAddress, liquidityPoolAddress, tokens, prices, fluidEpochs) => {
   const totalSupply = (await DOLLAR.totalSupply()) / 1e18
   const dollar = await DOLLAR.symbol()
 
@@ -1455,9 +1137,7 @@ const loadDAO = async (
 
   const totalBonded = (await DAO.totalBonded()) / 1e18
   const totalStaged = (await DAO.totalStaged()) / 1e18
-  const bonded = (await DAO.balanceOfBonded(App.YOUR_ADDRESS)) / 1e18
-  const staged = (await DAO.balanceOfStaged(App.YOUR_ADDRESS)) / 1e18
-  const status = (await DAO.statusOf(App.YOUR_ADDRESS)) ? 'Fluid' : 'Frozen'
+
   const epoch = (await DAO.epoch()) / 1
   _print(`Current Epoch: ${epoch}\n`)
   _print(`${dollar} Price: ${formatMoney(zaiPrice)}\n`)
@@ -1465,196 +1145,22 @@ const loadDAO = async (
   _print(`${dollar} Total Supply: ${totalSupply.toFixed(2)}, $${formatMoney(totalSupply * zaiPrice)}`)
   _print(`${dollar} Total Staged: ${totalStaged.toFixed(2)}, $${formatMoney(totalStaged * zaiPrice)}`)
   _print(`${dollar} Total Bonded: ${totalBonded.toFixed(2)}, $${formatMoney(totalBonded * zaiPrice)}`)
-  _print(`Your DAO status is ${status}`)
-  _print(`You have ${unstaked.toFixed(2)} unstaked ${dollar}, $${formatMoney(unstaked * zaiPrice)}`)
-  _print(
-    `You have ${staged.toFixed(2)} staged ${dollar}, $${formatMoney(staged * zaiPrice)}, ${(
-      (staged / totalStaged) *
-      100
-    ).toFixed(4)}% of the pool`
-  )
-  _print(
-    `You have ${bonded.toFixed(2)} bonded ${dollar}, $${formatMoney(bonded * zaiPrice)}, ${(
-      (bonded / totalBonded) *
-      100
-    ).toFixed(4)}% of the pool`
-  )
-  if (status == 'Fluid') await loadFluidStatus(App, DAO, fluidEpochs, epoch)
 
-  const approveAndDeposit = async () => dao_deposit(App, DAO, DOLLAR)
-  const withdraw = async () => esd_withdraw(DAO, App)
-  const bond = async () => esd_bond(DAO, App)
-  const unbond = async () => (isBuggyDAO ? buggy_dao_unbond(DAO, App) : esd_unbond(DAO, App))
-
-  _print_link(`Deposit ${unstaked.toFixed(2)} ${dollar}`, approveAndDeposit)
-  _print_link(`Withdraw ${staged.toFixed(2)} ${dollar}`, withdraw)
-  _print_link(`Bond ${staged.toFixed(2)} ${dollar}`, bond)
-  _print_link(`Unbond ${bonded.toFixed(2)} ${dollar}`, unbond)
-  _print('')
-
-  const couponFilter = DAO.filters.CouponPurchase(App.YOUR_ADDRESS)
-  const coupons = await DAO.queryFilter(couponFilter)
-  for (const c of coupons) {
-    const dollarAmount = c.args.dollarAmount / 1e18
-    const couponCount = c.args.couponAmount / 1e18
-    const couponEpoch = c.args.epoch / 1
-    _print(`You purchased ${couponCount} coupons worth $${dollarAmount} at epoch ${couponEpoch}`)
-  }
   _print('')
 
   return [epoch, uniPrices, totalBonded]
 }
 
-async function loadEmptySetLP(
-  App,
-  LP,
-  stakeTokenAddress,
-  stakeTokenTicker,
-  fluidEpochs,
-  epoch,
-  rewardTicker,
-  uniPrices
-) {
-  const stakeToken = new ethers.Contract(stakeTokenAddress, ERC20_ABI, App.provider)
-  const unstaked = (await stakeToken.balanceOf(App.YOUR_ADDRESS)) / 1e18
-
+async function loadEmptySetLP(App, LP, stakeTokenTicker, uniPrices) {
   const totalBonded = (await LP.totalBonded()) / 1e18
   const totalStaged = (await LP.totalStaged()) / 1e18
 
-  const staged = (await LP.balanceOfStaged(App.YOUR_ADDRESS)) / 1e18
-  const bonded = (await LP.balanceOfBonded(App.YOUR_ADDRESS)) / 1e18
-  const claimable = (await LP.balanceOfClaimable(App.YOUR_ADDRESS)) / 1e18
-  const rewarded = (await LP.balanceOfRewarded(App.YOUR_ADDRESS)) / 1e18
-  const status = (await LP.statusOf(App.YOUR_ADDRESS)) ? 'Fluid' : 'Frozen'
-
   const lpPrice = uniPrices.price
   uniPrices.print_price()
-  //_print(`${stakeTokenTicker} Total Supply: ${uniPrices.totalSupply.toFixed(2)}, $${formatMoney(uniPrices.totalSupply * zaiPrice)}`);
   _print(`${stakeTokenTicker} Total Staged: ${totalStaged.toFixed(2)}, $${formatMoney(totalStaged * lpPrice)}`)
   _print(`${stakeTokenTicker} Total Bonded: ${totalBonded.toFixed(2)}, $${formatMoney(totalBonded * lpPrice)}`)
-  _print(`Your LP status is ${status}`)
-  _print(`You have ${unstaked.toFixed(8)} unstaked ${stakeTokenTicker}, $${formatMoney(unstaked * lpPrice)}`)
-  if (unstaked > 0) uniPrices.print_contained_price(unstaked)
-  _print(
-    `You have ${staged.toFixed(8)} staged ${stakeTokenTicker}, $${formatMoney(staged * lpPrice)}, ${(
-      (staged / totalStaged) *
-      100
-    ).toFixed(4)}% of the pool`
-  )
-  if (staged > 0) uniPrices.print_contained_price(staged)
-  _print(
-    `You have ${bonded.toFixed(8)} bonded ${stakeTokenTicker}, $${formatMoney(bonded * lpPrice)}, ${(
-      (bonded / totalBonded) *
-      100
-    ).toFixed(4)}% of the pool`
-  )
-  if (bonded > 0) uniPrices.print_contained_price(bonded)
-  _print(`You have ${rewarded.toFixed(2)} rewarded ${rewardTicker}`)
-  _print(`You have ${claimable.toFixed(2)} claimable ${rewardTicker}`)
 
-  if (status == 'Fluid') await loadFluidStatus(App, LP, fluidEpochs, epoch)
-  const approveAndDeposit = async () => dao_deposit(App, LP, stakeToken)
-  const withdraw = async () => esd_withdraw(LP, App)
-  const bond = async () => esd_bond(LP, App)
-  const unbond = async () => esd_unbond(LP, App)
-  const claim = async () => esd_claim(LP, App)
-
-  _print_link(`Deposit ${unstaked.toFixed(6)} ${stakeTokenTicker}`, approveAndDeposit)
-  _print_link(`Withdraw ${staged.toFixed(6)} ${stakeTokenTicker}`, withdraw)
-  _print_link(`Bond ${staged.toFixed(6)} ${stakeTokenTicker}`, bond)
-  _print_link(`Unbond ${bonded.toFixed(6)} ${stakeTokenTicker}`, unbond)
-  _print_link(`Claim ${claimable.toFixed(6)} ${rewardTicker}`, claim)
   _print('')
-}
-
-const esd_withdraw = async function(DAO, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = DAO.connect(signer)
-  const currentStakedAmount = await REWARD_POOL.balanceOfStaged(App.YOUR_ADDRESS)
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.withdraw(currentStakedAmount, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const esd_claim = async function(LP, App) {
-  const signer = App.provider.getSigner()
-
-  const claimable = await LP.balanceOfClaimable(App.YOUR_ADDRESS)
-
-  if (claimable > 0) {
-    showLoading()
-    LP.connect(signer)
-      .claim(claimable, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const esd_unbond = async function(DAO, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = DAO.connect(signer)
-  const currentStakedAmount = await REWARD_POOL.balanceOfBonded(App.YOUR_ADDRESS)
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.unbond(currentStakedAmount, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const esd_bond = async function(DAO, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = DAO.connect(signer)
-  const currentStakedAmount = await REWARD_POOL.balanceOfStaged(App.YOUR_ADDRESS)
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.bond(currentStakedAmount, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
-}
-
-const buggy_dao_unbond = async function(DAO, App) {
-  const signer = App.provider.getSigner()
-
-  const REWARD_POOL = DAO.connect(signer)
-  const currentStakedAmount = await REWARD_POOL.balanceOf(App.YOUR_ADDRESS)
-
-  if (currentStakedAmount > 0) {
-    showLoading()
-    REWARD_POOL.unbond(currentStakedAmount, {gasLimit: 250000})
-      .then(function(t) {
-        return App.provider.waitForTransaction(t.hash)
-      })
-      .catch(function() {
-        hideLoading()
-      })
-  }
 }
 
 ///targetMantissa should be 12 for USDC based, 24 for DAI based

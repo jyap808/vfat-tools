@@ -11421,7 +11421,7 @@ object-assign
                   e === o.INJECTED_PROVIDER_ID ? t.injectedProvider || r.providers.FALLBACK : u.getProviderInfoById(e)),
                 t.providerOptions[e]) &&
                   void 0 !== t.providerOptions[e].display &&
-                    (n = i.__assign(i.__assign({}, n), t.providerOptions[e].display))
+                  (n = i.__assign(i.__assign({}, n), t.providerOptions[e].display))
                 return i.__assign(i.__assign({}, n), {connector: r.connectors[e], package: n.package})
               })),
               Object.keys(this.providerOptions)

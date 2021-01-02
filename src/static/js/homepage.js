@@ -1,4 +1,1 @@
-$(async function() {
-
-});
-
+$(async function() {})
